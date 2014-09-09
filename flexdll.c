@@ -351,7 +351,8 @@ static void *find_symbol_global(void *data, const char *name) {
   return NULL;
 }
 
-int flexdll_relocate(void *tbl) {
+__declspec(dllexport)
+int __flexdll_relocate(void *tbl) {
   if (!tbl) { printf("No master relocation table\n"); return 0; }
   relocate_master(find_symbol_global, NULL, tbl);
   if (error) return 0;
@@ -365,30 +366,11 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
 #endif
   void *handle;
   dlunit *unit;
-  char flexdll_relocate_env[256];
   int exec = (mode & FLEXDLL_RTLD_NOEXEC ? 0 : 1);
   void* relocate = (exec ? &flexdll_relocate : 0);
 
   error = 0;
   if (!file) return &main_unit;
-
-#ifdef CYGWIN
-  sprintf(flexdll_relocate_env,"%p",relocate);
-  setenv("FLEXDLL_RELOCATE", flexdll_relocate_env, 1);
-#else
-#if __STDC_SECURE_LIB__ >= 200411L
-  sprintf(flexdll_relocate_env,"%p",relocate);
-  _putenv_s("FLEXDLL_RELOCATE", flexdll_relocate_env);
-#else
-  {
-    char* s;
-    sprintf(flexdll_relocate_env,"FLEXDLL_RELOCATE=%p",relocate);
-    s = malloc(strlen(flexdll_relocate_env) + 1);
-    strcpy(s, flexdll_relocate_env);
-    putenv(s);
-  }
-#endif /* __STDC_SECURE_LIB__ >= 200411L*/
-#endif /* CYGWIN */
 
   handle = ll_dlopen(file, exec);
   if (!handle) { if (!error) error = 1; return NULL; }

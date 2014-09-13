@@ -46,6 +46,7 @@ let deffile = ref None
 let stack_reserve = ref None
 let no_rel_relocs = ref false
 let base_addr = ref "0x10000"
+let use_jmptbl = ref None
 
 let usage_msg =
   Printf.sprintf
@@ -183,6 +184,12 @@ let specs = [
 
   "-nodefaultlibs", Arg.Clear use_default_libs,
   " Do not assume any default library";
+
+  "-nojmptbl", Arg.Unit (fun () -> use_jmptbl := Some false),
+  " Do not use jmp thunk table (default for 32-bit target) ";
+
+  "-jmptbl", Arg.Unit (fun () -> use_jmptbl := Some true),
+  " Use jmp thunk table (default for 64-bit target)";
 
   "-builtin", Arg.Set builtin_linker,
   " Use built-in linker to produce a dll";

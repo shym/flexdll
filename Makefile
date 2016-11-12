@@ -1,9 +1,9 @@
 VERSION = 0.37
 all: flexlink.exe support
 
-OCAML_CONFIG_FILE=$(shell cygpath -ad "$(shell ocamlopt -where)/Makefile.config")
-include $(OCAML_CONFIG_FILE)
-OCAMLOPT=ocamlopt
+#OCAML_CONFIG_FILE=$(shell cygpath -ad "$(shell ocamlopt -where)/Makefile.config")
+#include $(OCAML_CONFIG_FILE)
+OCAMLOPT?=ocamlopt
 OCAML_VERSION:=$(shell $(OCAMLOPT) -version|sed -e "s/+.*//" -e "s/\.//g")
 ifeq ($(OCAML_VERSION),)
 OCAML_VERSION:=0
@@ -35,7 +35,7 @@ CHAINS = mingw mingw64 cygwin cygwin64 msvc msvc64
 # Attempt to locate the Windows SDK
 
 ifeq ($(findstring clean,$(MAKECMDGOALS)),)
-include Makefile.winsdk
+#include Makefile.winsdk
 endif
 
 Makefile.winsdk: findwinsdk
@@ -69,8 +69,8 @@ MSVCC = $(MSVCC_ROOT)/cl.exe $(MSVC_FLAGS)
 MSVCC64 = $(MSVCC_ROOT)/amd64/cl.exe $(MSVC_FLAGS)
 else
 MSVCC_ROOT:=
-MSVC_PREFIX=PATH="$(SDK):$(PATH)" LIB="$(SDK_LIB);$(LIB)" INCLUDE="$(SDK_INC);$(INCLUDE)"
-MSVC64_PREFIX=PATH="$(SDK64):$(PATH)" LIB="$(SDK64_LIB);$(LIB)" INCLUDE="$(SDK64_INC);$(INCLUDE)"
+MSVC_PREFIX=#PATH="$(SDK):$(PATH)" LIB="$(SDK_LIB);$(LIB)" INCLUDE="$(SDK_INC);$(INCLUDE)"
+MSVC64_PREFIX=#PATH="$(SDK64):$(PATH)" LIB="$(SDK64_LIB);$(LIB)" INCLUDE="$(SDK64_INC);$(INCLUDE)"
 
 MSVCC = cl.exe $(MSVC_FLAGS)
 MSVCC64 = cl.exe $(MSVC_FLAGS)
@@ -140,7 +140,7 @@ flexlink.exe: $(OBJS) $(RES)
 	$(RES_PREFIX) $(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
 
 version.res: version.rc
-	$(RES_PREFIX) rc version.rc
+	$(RES_PREFIX) rc.exe -nologo version.rc
 
 version_res.o: version.rc
 	$(TOOLPREF)windres version.rc version_res.o

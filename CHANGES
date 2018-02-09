@@ -1,3 +1,7 @@
+Next version
+- -base option consistently applied to mingw64, cygwin64 and msvc64. Default is
+  no longer specified (David Allsopp)
+
 Version 0.37
 - Bug fix: the IMAGE_SCN_LNK_NRELOC_OVFL section flag was not propertly reset when
   the number of relocations was reduced enough to fit in the 16-bit field,

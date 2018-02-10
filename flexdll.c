@@ -45,7 +45,7 @@ typedef struct dlunit {
   int count;
   struct dlunit *next,*prev;
 } dlunit;
-typedef void *resolver(void*, const char*);
+typedef dynsymbol *resolver(void*, const char*);
 
 static int error = 0;
 static char error_buffer[256];
@@ -179,6 +179,7 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
   reloc_entry *ptr;
   nonwr *wr;
   INT_PTR s;
+  dynsymbol *sym;
   /*
   DWORD old;
   MEMORY_BASIC_INFORMATION info;
@@ -203,12 +204,14 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
     */
 
 
-    s = (UINT_PTR) f(data,ptr->name);
-    if (!s) {
+    sym = f(data, ptr->name);
+    if (!sym) {
       error = 2;
       cannot_resolve_msg(ptr->name);
       return;
     }
+    s = (UINT_PTR)sym->addr;
+
     switch (ptr->kind & 0xff) {
     case RELOC_ABS:
       *(ptr->addr) += s;
@@ -296,7 +299,7 @@ static int compare_dynsymbol(const void *s1, const void *s2) {
   return strcmp(((dynsymbol*) s1) -> name, ((dynsymbol*) s2) -> name);
 }
 
-static void *find_symbol(symtbl *tbl, const char *name) {
+static dynsymbol *find_symbol(symtbl *tbl, const char *name) {
   static dynsymbol s;
   dynsymbol *sym;
 
@@ -306,7 +309,7 @@ static void *find_symbol(symtbl *tbl, const char *name) {
   sym =
     bsearch(&s,&tbl->entries,tbl->size, sizeof(dynsymbol),&compare_dynsymbol);
 
-  return (NULL == sym ? NULL : sym -> addr);
+  return sym;
 }
 
 
@@ -331,8 +334,8 @@ static void unlink_unit(dlunit *unit) {
   if (unit->next) unit->next->prev=unit->prev;
 }
 
-static void *find_symbol_global(void *data, const char *name) {
-  void *sym;
+static dynsymbol *find_symbol_global(void *data, const char *name) {
+  dynsymbol *sym;
   dlunit *unit;
 
   if (!name) return NULL;
@@ -447,9 +450,11 @@ void flexdll_dlclose(void *u) {
 
 
 void *flexdll_dlsym(void *u, const char *name) {
-  if (u == &main_unit) return find_symbol_global(NULL,name);
-  else if (NULL == u) return find_symbol(&static_symtable,name);
-  else return find_symbol(((dlunit*)u)->symtbl,name);
+  dynsymbol *result;
+  if (u == &main_unit) result = find_symbol_global(NULL, name);
+  else if (u == NULL) result = find_symbol(&static_symtable, name);
+  else result = find_symbol(((dlunit*)u)->symtbl, name);
+  return (result ? result->addr : NULL);
 }
 
 char *flexdll_dlerror() {

@@ -1,6 +1,12 @@
 Next version
 - -base option consistently applied to mingw64, cygwin64 and msvc64. Default is
   no longer specified (David Allsopp)
+- 64-bit ports can now always process RELOC_REL32* relocations by generating
+  trampolines for cases where the relocations are more than 32GiB away. New
+  functionality passed as flexdll_relocate_v2, which allows mixing executables
+  and DLLs compiled with and without the new features. If either executable or
+  DLL lacks the flexdll_relocate_v2 support, then it falls back to the previous
+  error message if a RELOC_REL32 is more than 2GiB away. (David Allsopp)
 
 Version 0.37
 - Bug fix: the IMAGE_SCN_LNK_NRELOC_OVFL section flag was not propertly reset when

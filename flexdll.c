@@ -36,7 +36,9 @@ typedef unsigned long uintnat;
 typedef struct { UINT_PTR kind; char *name; UINT_PTR *addr; } reloc_entry;
 typedef struct { char *first; char *last; DWORD old; } nonwr;
 typedef struct { nonwr *nonwr; reloc_entry entries[]; } reloctbl;
-typedef struct { void *addr; char *name; } dynsymbol;
+typedef struct { void *addr; char *name; } symtbl_entry;
+typedef struct { void *addr; char *name; void *trampoline; } dynsymbol;
+typedef struct { UINT_PTR size; symtbl_entry entries[]; } raw_symtbl;
 typedef struct { UINT_PTR size; dynsymbol entries[]; } symtbl;
 typedef struct dlunit {
   void *handle;
@@ -175,11 +177,13 @@ static void cannot_resolve_msg(char *name) {
   error_buffer[l+n] = 0;
 }
 
-static void relocate(resolver f, void *data, reloctbl *tbl) {
+static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
   reloc_entry *ptr;
   nonwr *wr;
   INT_PTR s;
   dynsymbol *sym;
+  int rel_offset;
+  char* reloc_type;
   /*
   DWORD old;
   MEMORY_BASIC_INFORMATION info;
@@ -214,51 +218,55 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
 
     switch (ptr->kind & 0xff) {
     case RELOC_ABS:
-      *(ptr->addr) += s;
+      rel_offset = 0;
       break;
     case RELOC_REL32:
-      s -= (INT_PTR)(ptr -> addr) + 4;
-      s += *((INT32*) ptr -> addr);
-      if (s != (INT32) s) {
-        sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32, target is too far: %p  %p", (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
-        error = 3;
-        return;
-      }
-      *((UINT32*) ptr->addr) = s;
+      rel_offset = 4;
+      reloc_type = "";
       break;
     case RELOC_REL32_4:
-      s -= (INT_PTR)(ptr -> addr) + 8;
-      s += *((INT32*) ptr -> addr);
-      if (s != (INT32) s) {
-        sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32_4, target is too far: %p  %p",(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
-        error = 3;
-        return;
-      }
-      *((UINT32*) ptr->addr) = s;
+      rel_offset = 8;
+      reloc_type = "_4";
       break;
     case RELOC_REL32_1:
-      s -= (INT_PTR)(ptr -> addr) + 5;
-      s += *((INT32*) ptr -> addr);
-      if (s != (INT32) s) {
-        sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32_1, target is too far: %p  %p",(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
-        error = 3;
-        return;
-      }
-      *((UINT32*) ptr->addr) = s;
+      rel_offset = 5;
+      reloc_type = "_1";
       break;
     case RELOC_REL32_2:
-      s -= (INT_PTR)(ptr -> addr) + 6;
-      s += *((INT32*) ptr -> addr);
-      if (s != (INT32) s) {
-        sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32_2, target is too far: %p  %p",(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
-        error = 3;
-        return;
-      }
-      *((UINT32*) ptr->addr) = s;
+      rel_offset = 6;
+      reloc_type = "_2";
       break;
     default:
       fprintf(stderr, "flexdll: unknown relocation kind");
       exit(2);
+    }
+
+    if (!rel_offset) {
+      *(ptr->addr) += s;
+    } else {
+      s -= (INT_PTR)(ptr -> addr) + rel_offset;
+      s += *((INT32*) ptr -> addr);
+      if (s != (INT32) s) {
+        if (jmptbl) {
+          if (!sym->trampoline) {
+            void* trampoline = sym->trampoline = *jmptbl;
+            /* movq $(sym->addr), %rax */
+            *((short*)trampoline) = 0xb848;
+            *((UINT_PTR*)(trampoline + 2)) = (UINT_PTR)sym->addr;
+            /* jmp %rax */
+            *((short*)(trampoline + 10)) = 0xe0ff;
+            *jmptbl += 16;
+          }
+          s = (UINT_PTR)(sym->trampoline);
+          s -= (INT_PTR)(ptr->addr) + rel_offset;
+          s += *((INT32*)ptr->addr);
+        } else {
+          sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32%s, target is too far: %p  %p",reloc_type,(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
+          error = 3;
+          return;
+        }
+      }
+      *((UINT32*) ptr->addr) = s;
     }
     ptr->kind |= RELOC_DONE;
 
@@ -274,8 +282,10 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
     allow_write(wr->first,wr->last + 4,wr->old,&wr->old);
 }
 
-static void relocate_master(resolver f, void *data, reloctbl **ptr) {
-  while (0 == error && *ptr) relocate(f,data,*ptr++);
+static void relocate_master(resolver f, void *data, reloctbl **ptr, void *jmptbl) {
+  void **pjmptbl = jmptbl ? &jmptbl : NULL;
+  while (0 == error && *ptr)
+    relocate(f, data, *ptr++, pjmptbl);
 }
 
 /* Symbol tables */
@@ -316,7 +326,7 @@ static dynsymbol *find_symbol(symtbl *tbl, const char *name) {
 
 /* API */
 
-extern symtbl static_symtable;
+extern raw_symtbl static_symtable;
 static dlunit *units = NULL;
 static dlunit main_unit;
 
@@ -334,12 +344,38 @@ static void unlink_unit(dlunit *unit) {
   if (unit->next) unit->next->prev=unit->prev;
 }
 
+static symtbl *augment_symtbl(raw_symtbl *raw_symtbl) {
+  symtbl *result;
+  dynsymbol *ptr;
+  symtbl_entry *src;
+  int i;
+  result = (symtbl*)malloc(raw_symtbl->size * sizeof(dynsymbol) + sizeof(UINT_PTR));
+  ptr = result->entries;
+  src = raw_symtbl->entries;
+  i = result->size = raw_symtbl->size;
+  while (i-- > 0) {
+    ptr->addr = src->addr;
+    ptr->name = (src++)->name;
+    (ptr++)->trampoline = NULL;
+  }
+  return result;
+}
+
+static symtbl *get_static_symtable(void) {
+  static symtbl *table = NULL;
+
+  if (table)
+    return table;
+  else
+    return (table = augment_symtbl(&static_symtable));
+}
+
 static dynsymbol *find_symbol_global(void *data, const char *name) {
   dynsymbol *sym;
   dlunit *unit;
 
   if (!name) return NULL;
-  sym = find_symbol(&static_symtable, name);
+  sym = find_symbol(get_static_symtable(), name);
   if (sym) return sym;
 
   for (unit = units; unit; unit = unit->next) {
@@ -354,12 +390,14 @@ static dynsymbol *find_symbol_global(void *data, const char *name) {
   return NULL;
 }
 
-int flexdll_relocate(void *tbl) {
+int flexdll_relocate_v2(void *tbl, void *jmptbl) {
   if (!tbl) { printf("No master relocation table\n"); return 0; }
-  relocate_master(find_symbol_global, NULL, tbl);
+  relocate_master(find_symbol_global, NULL, tbl, jmptbl);
   if (error) return 0;
   return 1;
 }
+
+int flexdll_relocate(void *tbl) {return flexdll_relocate_v2(tbl, NULL);}
 
 void set_env_ptr(char* name, void* ptr) {
   char env[256];
@@ -396,6 +434,7 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
   if (!file) return &main_unit;
 
   set_env_ptr("FLEXDLL_RELOCATE", (exec ? &flexdll_relocate : 0));
+  set_env_ptr("FLEXDLL_RELOCATE_V2", (exec ? &flexdll_relocate_v2 : 0));
 
   handle = ll_dlopen(file, exec);
   if (!handle) { if (!error) error = 1; return NULL; }
@@ -406,7 +445,7 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
   else {
     unit = malloc(sizeof(dlunit));
     unit->handle = handle;
-    unit->symtbl = ll_dlsym(handle, "symtbl");
+    unit->symtbl = augment_symtbl(ll_dlsym(handle, "symtbl"));
     unit->count = 1;
     unit->global = 0;
     push_unit(unit);
@@ -416,7 +455,7 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
   if (exec) {
     /* Relocation has already been done if the flexdll's DLL entry point
        is used */
-    flexdll_relocate(ll_dlsym(handle, "reloctbl"));
+    flexdll_relocate_v2(ll_dlsym(handle, "reloctbl"), ll_dlsym(handle, "jmptbl"));
     if (error) { flexdll_dlclose(unit); return NULL; }
   }
 
@@ -449,14 +488,14 @@ void flexdll_dlclose(void *u) {
   if (NULL == u || u == &main_unit) return;
   ll_dlclose(unit->handle);
   unit->count--;
-  if (unit->count == 0) { unlink_unit(unit); free(unit); }
+  if (unit->count == 0) { unlink_unit(unit); free(unit->symtbl); free(unit); }
 }
 
 
 void *flexdll_dlsym(void *u, const char *name) {
   dynsymbol *result;
   if (u == &main_unit) result = find_symbol_global(NULL, name);
-  else if (u == NULL) result = find_symbol(&static_symtable, name);
+  else if (u == NULL) result = find_symbol(get_static_symtable(), name);
   else result = find_symbol(((dlunit*)u)->symtbl, name);
   return (result ? result->addr : NULL);
 }
@@ -473,9 +512,9 @@ char *flexdll_dlerror() {
 
 void flexdll_dump_exports(void *u) {
   dlunit *unit = u;
-  if (NULL == u) { dump_symtbl(&static_symtable); }
+  if (NULL == u) { dump_symtbl(get_static_symtable()); }
   else if (u == &main_unit) {
-    dump_symtbl(&static_symtable);
+    dump_symtbl(get_static_symtable());
     for (unit = units; unit; unit = unit->next)
       if (unit->global) { dump_symtbl(unit->symtbl); }
   }

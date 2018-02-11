@@ -186,8 +186,8 @@ static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
   char* reloc_type;
   /*
   DWORD old;
-  MEMORY_BASIC_INFORMATION info;
   */
+  MEMORY_BASIC_INFORMATION info;
 
   if (!tbl) return;
 
@@ -249,7 +249,14 @@ static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
       if (s != (INT32) s) {
         if (jmptbl) {
           if (!sym->trampoline) {
-            void* trampoline = sym->trampoline = *jmptbl;
+            void* trampoline;
+            /* trampolines cannot be created for data */
+            if (VirtualQuery(sym->addr, &info, sizeof(info)) && !(info.Protect & 0xf0)) {
+              sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32%s, target is too far, and not executable: %p  %p", reloc_type, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
+              error = 3;
+              return;
+            }
+            trampoline = sym->trampoline = *jmptbl;
             /* movq $(sym->addr), %rax */
             *((short*)trampoline) = 0xb848;
             *((UINT_PTR*)((char*)trampoline + 2)) = (UINT_PTR)sym->addr;

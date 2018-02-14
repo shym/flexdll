@@ -246,33 +246,37 @@ static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
     } else {
       s -= (INT_PTR)(ptr -> addr) + rel_offset;
       s += *((INT32*) ptr -> addr);
+retry:
       if (s != (INT32) s) {
-        if (jmptbl) {
-          if (!sym->trampoline) {
-            void* trampoline;
-            /* trampolines cannot be created for data */
-            if (VirtualQuery(sym->addr, &info, sizeof(info)) && !(info.Protect & 0xf0)) {
-              sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32%s, target is too far, and not executable: %p  %p", reloc_type, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
-              error = 3;
-              return;
-            }
-            trampoline = sym->trampoline = *jmptbl;
-            /* rex.W jmpq $0x0(%rip) */
-            *((__int64*)trampoline) = 0x25ff48;
-            /* Place the actual symbol immediately after the instruction */
-            *((UINT_PTR*)((char*)trampoline + 7)) = (UINT_PTR)sym->addr;
-            /* Pad with nop */
-            *(((char*)trampoline + 15)) = 0x90;
-            *((UINT_PTR*)jmptbl) += 16;
-          }
-          s = (UINT_PTR)(sym->trampoline);
-          s -= (INT_PTR)(ptr->addr) + rel_offset;
-          s += *((INT32*)ptr->addr);
-        } else {
+        if (!jmptbl) {
           sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32%s, target is too far: %p  %p",reloc_type,(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
           error = 3;
           return;
         }
+        if (!sym->trampoline) {
+          void* trampoline;
+          /* trampolines cannot be created for data */
+          if (VirtualQuery(sym->addr, &info, sizeof(info)) && !(info.Protect & 0xf0)) {
+            sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32%s, target is too far, and not executable: %p  %p", reloc_type, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
+            error = 3;
+            return;
+          }
+          trampoline = sym->trampoline = *jmptbl;
+          /* rex.W jmpq $0x0(%rip) */
+          *((__int64*)trampoline) = 0x25ff48;
+          /* Place the actual symbol immediately after the instruction */
+          *((UINT_PTR*)((char*)trampoline + 7)) = (UINT_PTR)sym->addr;
+          /* Pad with nop */
+          *(((char*)trampoline + 15)) = 0x90;
+          *((UINT_PTR*)jmptbl) += 16;
+        }
+        s = (UINT_PTR)(sym->trampoline);
+        s -= (INT_PTR)(ptr->addr) + rel_offset;
+        s += *((INT32*)ptr->addr);
+      }
+      if (s != (INT32)s) {
+        sym->trampoline = NULL;
+        goto retry;
       }
       *((UINT32*) ptr->addr) = s;
     }

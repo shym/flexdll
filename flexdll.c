@@ -242,8 +242,11 @@ static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
     }
 
     if (!rel_offset) {
+      //fprintf(stderr, "Relocating %s using RELOC_ABS\n", ptr->name);
       *(ptr->addr) += s;
     } else {
+      //if (strlen(reloc_type) > 0)
+        fprintf(stderr, "Relocating %s (addr %p) using RELOC_REL32%s\n", ptr->name, sym->addr, reloc_type); fflush(stderr);
       s -= (INT_PTR)(ptr -> addr) + rel_offset;
       s += *((INT32*) ptr -> addr);
 retry:
@@ -256,8 +259,9 @@ retry:
         if (!sym->trampoline) {
           void* trampoline;
           /* trampolines cannot be created for data */
+          fprintf(stderr, "Creating trampoline for %s to %p at %p\n", ptr->name, sym->addr, *jmptbl); fflush(stderr);
           if (VirtualQuery(sym->addr, &info, sizeof(info)) && !(info.Protect & 0xf0)) {
-            sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32%s, target is too far, and not executable: %p  %p", reloc_type, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
+            sprintf(error_buffer, "flexdll error: cannot relocate %s using RELOC_REL32%s, target is too far, and not executable: %p  %p", sym->name, reloc_type, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
             error = 3;
             return;
           }
@@ -269,6 +273,7 @@ retry:
           /* Pad with nop */
           *(((char*)trampoline + 15)) = 0x90;
           *((UINT_PTR*)jmptbl) += 16;
+          fprintf(stderr, "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", p[0] & 0xff, p[1] & 0xff, p[2] & 0xff, p[3] & 0xff, p[4] & 0xff, p[5] & 0xff, p[6] & 0xff, p[7] & 0xff, p[8] & 0xff, p[9] & 0xff, p[10] & 0xff, p[11] & 0xff, p[12] & 0xff, p[13] & 0xff, p[14] & 0xff, p[15] & 0xff); fflush(stderr);
         }
         s = (UINT_PTR)(sym->trampoline);
         s -= (INT_PTR)(ptr->addr) + rel_offset;
@@ -278,6 +283,7 @@ retry:
         sym->trampoline = NULL;
         goto retry;
       }
+      /*assert(s == (INT32)s);*/
       *((UINT32*) ptr->addr) = s;
     }
     ptr->kind |= RELOC_DONE;

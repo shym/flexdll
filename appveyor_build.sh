@@ -18,10 +18,14 @@ function configure_ocaml {
     cp config/m-nt.h $HEADER_DIR/m.h
     cp config/s-nt.h $HEADER_DIR/s.h
 
+    if [ "$1" = "full" ] ; then
+      DISABLE=()
+    else
+      DISABLE=(-e "s/\(OTHERLIBRARIES\|WITH_OCAMLDOC\|WITH_DEBUGGER\)=.*/\1=/")
+    fi
+
     sed -e "s|PREFIX=.*|PREFIX=$OCAMLROOT|" \
-        -e "s|OTHERLIBRARIES=.*|OTHERLIBRARIES=|" \
-        -e "s|WITH_DEBUGGER=.*|WITH_DEBUGGER=|" \
-        -e "s|WITH_OCAMLDOC=.*|WITH_OCAMLDOC=|" \
+        "${DISABLE[@]}" \
         config/Makefile.msvc64 > $CONFIG_DIR/Makefile
     #run "Content of config/Makefile" cat $CONFIG_DIR/Makefile
 }
@@ -65,9 +69,9 @@ if [ $OCAMLBRANCH = "4.03" ] ; then
   sed -i -e "s/:=.*/:=/" config/Makefile.msvc64
 fi
 
-configure_ocaml
-
 if [ ! -f $OCAMLROOT/STAMP ] || [ "$(git rev-parse HEAD)" != "$(cat $OCAMLROOT/STAMP)" ]; then
+    configure_ocaml
+
     run "make world.opt" $MAKEOCAML flexdll world.opt
     run "make install" $MAKEOCAML install
 
@@ -101,8 +105,9 @@ if [ -f ocamlopt.opt ] ; then
     cd flexdll
     git clean -dfx > /dev/null
     cd ..
-    configure_ocaml
 fi
+
+configure_ocaml full
 
 cd flexdll
 git remote add local $(echo "$APPVEYOR_BUILD_FOLDER"| cygpath -f -) -f --tags

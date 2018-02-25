@@ -257,7 +257,7 @@ retry:
           void* trampoline;
           /* trampolines cannot be created for data */
           if (VirtualQuery(sym->addr, &info, sizeof(info)) && !(info.Protect & 0xf0)) {
-            sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32%s, target is too far, and not executable: %p  %p", reloc_type, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
+            sprintf(error_buffer, "flexdll error: cannot relocate %s via RELOC_REL32%s, target is too far, and not executable: %p  %p", ptr->name, reloc_type, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
             error = 3;
             return;
           }

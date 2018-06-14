@@ -9,6 +9,8 @@
 
 /* Runtime support library */
 
+#include <unistd.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
@@ -37,7 +39,7 @@ typedef struct { UINT_PTR kind; char *name; UINT_PTR *addr; } reloc_entry;
 typedef struct { char *first; char *last; DWORD old; } nonwr;
 typedef struct { nonwr *nonwr; reloc_entry entries[]; } reloctbl;
 typedef struct { void *addr; char *name; } symtbl_entry;
-typedef struct { void *addr; char *name; void *trampoline; } dynsymbol;
+typedef struct { void *addr; char *name; void *trampoline; int pid; } dynsymbol;
 typedef struct { UINT_PTR size; symtbl_entry entries[]; } raw_symtbl;
 typedef struct { UINT_PTR size; dynsymbol entries[]; } symtbl;
 typedef struct dlunit {
@@ -177,6 +179,8 @@ static void cannot_resolve_msg(char *name) {
   error_buffer[l+n] = 0;
 }
 
+int lastpid = 0;
+
 static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
   reloc_entry *ptr;
   nonwr *wr;
@@ -188,6 +192,9 @@ static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
   DWORD old;
   */
   MEMORY_BASIC_INFORMATION info;
+
+  if (!lastpid) lastpid = getpid();
+  //if (lastpid != getpid()) printf("Holy cow, our pid changed\n");
 
   if (!tbl) return;
 
@@ -246,7 +253,7 @@ static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
       *(ptr->addr) += s;
     } else {
       //if (strlen(reloc_type) > 0)
-        fprintf(stderr, "Relocating %s (addr %p) using RELOC_REL32%s\n", ptr->name, sym->addr, reloc_type); fflush(stderr);
+        //fprintf(stderr, "[%d] Relocating %s (addr %p) using RELOC_REL32%s\n", getpid(), ptr->name, sym->addr, reloc_type); fflush(stderr);
       s -= (INT_PTR)(ptr -> addr) + rel_offset;
       s += *((INT32*) ptr -> addr);
 retry:
@@ -256,16 +263,21 @@ retry:
           error = 3;
           return;
         }
-        if (!sym->trampoline) {
+        if (sym->pid && sym->pid != getpid()) {
+          //fprintf(stderr, "[%d] fork detected: trampoline for %s was created by %d\n", getpid(), ptr->name, sym->pid); fflush(stderr);
+          sym->trampoline = NULL;
+        }
+        if (!sym->trampoline /*|| sym->trampoline >= *jmptbl*/) {
           void* trampoline;
           /* trampolines cannot be created for data */
-          fprintf(stderr, "Creating trampoline for %s to %p at %p\n", ptr->name, sym->addr, *jmptbl); fflush(stderr);
+          //fprintf(stderr, "[%d] Creating trampoline for %s to %p at %p\n", getpid(), ptr->name, sym->addr, *jmptbl); fflush(stderr);
           if (VirtualQuery(sym->addr, &info, sizeof(info)) && !(info.Protect & 0xf0)) {
             sprintf(error_buffer, "flexdll error: cannot relocate %s via RELOC_REL32%s, target is too far, and not executable: %p  %p", ptr->name, reloc_type, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
             error = 3;
             return;
           }
           trampoline = sym->trampoline = *jmptbl;
+          sym->pid = getpid();
           /* rex.W jmpq $0x0(%rip) */
           *((__int64*)trampoline) = 0x25ff48;
           /* Place the actual symbol immediately after the instruction */
@@ -273,8 +285,10 @@ retry:
           /* Pad with nop */
           *(((char*)trampoline + 15)) = 0x90;
           *((UINT_PTR*)jmptbl) += 16;
-          fprintf(stderr, "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", p[0] & 0xff, p[1] & 0xff, p[2] & 0xff, p[3] & 0xff, p[4] & 0xff, p[5] & 0xff, p[6] & 0xff, p[7] & 0xff, p[8] & 0xff, p[9] & 0xff, p[10] & 0xff, p[11] & 0xff, p[12] & 0xff, p[13] & 0xff, p[14] & 0xff, p[15] & 0xff); fflush(stderr);
+        } else {
+          //fprintf(stderr, "[%d] Trampoline already exists for %s at %p (jmptbl = %p)\n", getpid(), ptr->name, sym->trampoline, *jmptbl);
         }
+        //fprintf(stderr, "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n", ((char*)sym->trampoline)[0] & 0xff, ((char*)sym->trampoline)[1] & 0xff, ((char*)sym->trampoline)[2] & 0xff, ((char*)sym->trampoline)[3] & 0xff, ((char*)sym->trampoline)[4] & 0xff, ((char*)sym->trampoline)[5] & 0xff, ((char*)sym->trampoline)[6] & 0xff, ((char*)sym->trampoline)[7] & 0xff, ((char*)sym->trampoline)[8] & 0xff, ((char*)sym->trampoline)[9] & 0xff, ((char*)sym->trampoline)[10] & 0xff, ((char*)sym->trampoline)[11] & 0xff, ((char*)sym->trampoline)[12] & 0xff, ((char*)sym->trampoline)[13] & 0xff, ((char*)sym->trampoline)[14] & 0xff, ((char*)sym->trampoline)[15] & 0xff); fflush(stderr);
         s = (UINT_PTR)(sym->trampoline);
         s -= (INT_PTR)(ptr->addr) + rel_offset;
         s += *((INT32*)ptr->addr);
@@ -367,6 +381,7 @@ static symtbl *augment_symtbl(raw_symtbl *raw_symtbl) {
   dynsymbol *ptr;
   symtbl_entry *src;
   int i;
+  //fprintf(stderr, "Augmenting symtbl at %p in %d\n", raw_symtbl, getpid()); fflush(stderr);
   result = (symtbl*)malloc(raw_symtbl->size * sizeof(dynsymbol) + sizeof(UINT_PTR));
   ptr = result->entries;
   src = raw_symtbl->entries;
@@ -374,18 +389,19 @@ static symtbl *augment_symtbl(raw_symtbl *raw_symtbl) {
   while (i-- > 0) {
     ptr->addr = src->addr;
     ptr->name = (src++)->name;
+    ptr->pid = 0;
     (ptr++)->trampoline = NULL;
   }
   return result;
 }
 
+  static symtbl *gss_table = NULL;
 static symtbl *get_static_symtable(void) {
-  static symtbl *table = NULL;
 
-  if (table)
-    return table;
+  if (gss_table)
+    return gss_table;
   else
-    return (table = augment_symtbl(&static_symtable));
+    return (gss_table = augment_symtbl(&static_symtable));
 }
 
 static dynsymbol *find_symbol_global(void *data, const char *name) {
@@ -447,6 +463,8 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
   void *handle;
   dlunit *unit;
   int exec = (mode & FLEXDLL_RTLD_NOEXEC ? 0 : 1);
+
+  //fprintf(stderr, "[%d] dlopen'ing %s\n", getpid(), file); fflush(stderr);
 
   error = 0;
   if (!file) return &main_unit;

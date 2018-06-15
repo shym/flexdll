@@ -9,7 +9,7 @@
 
 /* Runtime support library */
 
-#include <unistd.h>
+/*#include <unistd.h>*/
 
 #include <stdio.h>
 #include <string.h>
@@ -39,7 +39,7 @@ typedef struct { UINT_PTR kind; char *name; UINT_PTR *addr; } reloc_entry;
 typedef struct { char *first; char *last; DWORD old; } nonwr;
 typedef struct { nonwr *nonwr; reloc_entry entries[]; } reloctbl;
 typedef struct { void *addr; char *name; } symtbl_entry;
-typedef struct { void *addr; char *name; void *trampoline; int pid; } dynsymbol;
+typedef struct { void *addr; char *name; void *trampoline; /*int pid;*/ } dynsymbol;
 typedef struct { UINT_PTR size; symtbl_entry entries[]; } raw_symtbl;
 typedef struct { UINT_PTR size; dynsymbol entries[]; } symtbl;
 typedef struct dlunit {
@@ -179,7 +179,7 @@ static void cannot_resolve_msg(char *name) {
   error_buffer[l+n] = 0;
 }
 
-int lastpid = 0;
+//int lastpid = 0;
 
 static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
   reloc_entry *ptr;
@@ -193,7 +193,7 @@ static void relocate(resolver f, void *data, reloctbl *tbl, void **jmptbl) {
   */
   MEMORY_BASIC_INFORMATION info;
 
-  if (!lastpid) lastpid = getpid();
+  //if (!lastpid) lastpid = getpid();
   //if (lastpid != getpid()) printf("Holy cow, our pid changed\n");
 
   if (!tbl) return;
@@ -263,11 +263,11 @@ retry:
           error = 3;
           return;
         }
-        if (sym->pid && sym->pid != getpid()) {
+        /*if (sym->pid && sym->pid != getpid()) {
           //fprintf(stderr, "[%d] fork detected: trampoline for %s was created by %d\n", getpid(), ptr->name, sym->pid); fflush(stderr);
           sym->trampoline = NULL;
-        }
-        if (!sym->trampoline /*|| sym->trampoline >= *jmptbl*/) {
+        }*/
+        if (!sym->trampoline || *((char*)sym->trampoline) == '\0') {
           void* trampoline;
           /* trampolines cannot be created for data */
           //fprintf(stderr, "[%d] Creating trampoline for %s to %p at %p\n", getpid(), ptr->name, sym->addr, *jmptbl); fflush(stderr);
@@ -277,7 +277,7 @@ retry:
             return;
           }
           trampoline = sym->trampoline = *jmptbl;
-          sym->pid = getpid();
+          //sym->pid = getpid();
           /* rex.W jmpq $0x0(%rip) */
           *((__int64*)trampoline) = 0x25ff48;
           /* Place the actual symbol immediately after the instruction */
@@ -389,7 +389,7 @@ static symtbl *augment_symtbl(raw_symtbl *raw_symtbl) {
   while (i-- > 0) {
     ptr->addr = src->addr;
     ptr->name = (src++)->name;
-    ptr->pid = 0;
+    //ptr->pid = 0;
     (ptr++)->trampoline = NULL;
   }
   return result;

@@ -1,40 +1,45 @@
 platform:
   - x64
 
-image: Visual Studio 2015
+image: Visual Studio 2017
 
 environment:
   global:
-    CYG_ROOT: C:/cygwin
+    CYG_ROOT: cygwin64
+    CYG_ARCH: x86_64
     CYG_MIRROR: http://mirrors.kernel.org/sourceware/cygwin/
-    CYG_CACHE: C:/cygwin/var/cache/setup
+    CYG_CACHE: C:\cygwin\var\cache\setup
+    OCAMLROOT: C:\OCaml
   matrix:
     - OCAMLBRANCH: 4.03
+      OCAML_PORT: mingw
     - OCAMLBRANCH: 4.04
+      OCAML_PORT: mingw64
     - OCAMLBRANCH: 4.05
+      OCAML_PORT: cygwin
+      CYG_ROOT: cygwin
+      CYG_ARCH: x86
     - OCAMLBRANCH: 4.06
+      OCAML_PORT: cygwin64
     - OCAMLBRANCH: 4.07
+      OCAML_PORT: msvc
       SKIP_OCAML_TEST: no
     - OCAMLBRANCH: trunk
+      OCAML_PORT: msvc64
       SKIP_OCAML_TEST: no
-  OCAMLROOT: C:/OCaml
 
 cache:
-  - C:/OCaml
+  - C:\OCaml
+  - C:\cygwin\var\cache\setup
+
+init:
+  - "echo Building on %PLATFORM% for %OCAMLROOT%"
 
 install:
-  # Make sure the Cygwin path comes before the Git one (otherwise
-  # cygpath behaves crazily), but after the MSVC one.
-  - set Path=C:\cygwin\bin;%OCAMLROOT%\bin;C:\flexdll;%Path%
-  - '%CYG_ROOT%\bin\bash -lc "cygcheck -dc cygwin"'
-  - '"%CYG_ROOT%\setup-x86.exe" --quiet-mode --no-shortcuts --no-startmenu --no-desktop --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages cygwin64-gcc-core > nul'
-  - '%CYG_ROOT%\bin\bash -lc "x86_64-pc-cygwin-gcc --version" > nul || "%CYG_ROOT%\setup-x86.exe" --quiet-mode --no-shortcuts --no-startmenu --no-desktop --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --upgrade-also > nul'
-  - '%CYG_ROOT%\bin\bash -lc "cygcheck -dc cygwin"'
-  - call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\bin\amd64\vcvars64.bat"
-  - appveyor DownloadFile "https://raw.githubusercontent.com/ocaml/ocaml/trunk/tools/msvs-promote-path" -FileName "msvs-promote-path"
+  - call "%APPVEYOR_BUILD_FOLDER%\appveyor_build.cmd" install
 
 build_script:
-  - "%CYG_ROOT%/bin/bash -lc \"echo 'eval $($APPVEYOR_BUILD_FOLDER/msvs-promote-path)' >> ~/.bash_profile\""
-  - '%CYG_ROOT%/bin/bash -lc "$APPVEYOR_BUILD_FOLDER/appveyor_build.sh"'
+  - call "%APPVEYOR_BUILD_FOLDER%\appveyor_build.cmd" build
 
-test: off
+test_script:
+  - call "%APPVEYOR_BUILD_FOLDER%\appveyor_build.cmd" test

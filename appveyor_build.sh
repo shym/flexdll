@@ -70,6 +70,12 @@ if [ $OCAMLBRANCH = "4.03" ] ; then
 fi
 
 if [ ! -f $OCAMLROOT/STAMP ] || [ "$(git rev-parse HEAD)" != "$(cat $OCAMLROOT/STAMP)" ]; then
+    if [ ! -f $OCAMLROOT/STAMP ] ; then
+      echo "$OCAMLROOT/STAMP missing"
+    else
+      echo "$OCAMLROOT/STAMP contains $(cat $OCAMLROOT/STAMP) where $(git rev-parse HEAD) expected"
+    fi
+    echo "Rebuilding OCaml $OCAMLBRANCH"
     configure_ocaml
 
     run "make world.opt" $MAKEOCAML flexdll world.opt

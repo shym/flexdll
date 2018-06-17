@@ -123,7 +123,8 @@ case $1 in
   ;;
   build)
     if [ -z "$2" ] ; then
-      script -qec '"$0" $1 script' build | sed -e 's/\d027\[K//g' \
+      echo "\$0 = $0"
+      script -qec '/cygdrive/c/projects/flexdll/appveyor_build.sh $1 script' build | sed -e 's/\d027\[K//g' \
                                                -e 's/\d027\[m/\d027[0m/g' \
                                                -e 's/\d027\[01\([m;]\)/\d027[1\1/g'
       exit $?

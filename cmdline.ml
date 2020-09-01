@@ -11,7 +11,7 @@ include Compat
 let underscore = ref true
     (* Are "normal" symbols prefixed with an underscore? *)
 
-let machine : [ `x86 | `x64 ] ref = ref `x86
+let machine : [ `x86 | `x64 | `arm64 ] ref = ref `x86
 
 let noexport = ref false
 let custom_crt = ref false
@@ -20,7 +20,7 @@ let use_default_libs = ref true
 let subsystem = ref "console"
 let explain = ref false
 let builtin_linker = ref false
-let toolchain : [ `MSVC | `MSVC64 | `MINGW | `MINGW64 | `GNAT | `GNAT64 | `CYGWIN | `CYGWIN64 | `LIGHTLD ] ref = ref `MSVC
+let toolchain : [ `MSVC | `MSVCARM64 | `MSVC64 | `MINGW | `MINGW64 | `GNAT | `GNAT64 | `CYGWIN | `CYGWIN64 | `LIGHTLD ] ref = ref `MSVC
 let save_temps = ref false
 let show_exports = ref false
 let show_imports = ref false
@@ -45,7 +45,7 @@ let implib = ref false
 let deffile = ref None
 let stack_reserve = ref None
 let no_rel_relocs = ref false
-let base_addr = ref "0x10000"
+let base_addr = ref None
 
 let usage_msg =
   Printf.sprintf
@@ -87,7 +87,7 @@ let specs = [
   "-norelrelocs", Arg.Set no_rel_relocs,
   " Ensure that no relative relocation is generated";
 
-  "-base", Arg.String (fun s -> base_addr := s),
+  "-base", Arg.String (fun s -> base_addr := Some s),
   " Specify base address (Win64 only)";
 
   "-I", Arg.String (fun dir -> dirs := dir :: !dirs),
@@ -99,12 +99,13 @@ let specs = [
   "-l", Arg.String (fun s -> files := ("-l" ^ s) :: !files),
   "<lib> Library file";
 
-  "-chain", Arg.Symbol (["msvc";"msvc64";"cygwin";"cygwin64";"mingw";"mingw64";"gnat";"gnat64";"ld"],
+  "-chain", Arg.Symbol (["msvc";"msvcarm64";"msvc64";"cygwin";"cygwin64";"mingw";"mingw64";"gnat";"gnat64";"ld"],
 			(fun s ->
                           machine := `x86; underscore := true;
                           toolchain := match s with
 			  | "msvc" -> `MSVC
 			  | "msvc64" -> machine := `x64; underscore := false; `MSVC64
+                          | "msvcarm64" -> machine := `arm64; underscore := false; `MSVCARM64
 			  | "cygwin" -> `CYGWIN
 			  | "cygwin64" -> machine := `x64; underscore := false; `CYGWIN64
 			  | "mingw" -> `MINGW

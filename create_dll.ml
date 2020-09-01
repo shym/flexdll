@@ -234,11 +234,13 @@ let create_dll oc objs =
         let initial = read_int32 sdata pos in
         match !Cmdline.machine, r.rtype with
         | `x86, 0x06 (* IMAGE_REL_I386_DIR32 *)
+        | `arm64, 0x01 (* IMAGE_REL_ARM64_ADDR32 *)
         | `x64, 0x02 (* IMAGE_REL_AMD64_ADDR32 *) ->
             (* 32-bit VA *)
             relocs := (rel_rva, `R32) :: !relocs;
             Buf.patch_lazy_int32 buf pos (lazy (Int32.add (Int32.add initial (Lazy.force rva)) image_base))
 
+        | `arm64, 0x0e (* IMAGE_REL_ARM64_ADDR64 *)
         | `x64, 0x01 (* IMAGE_REL_AMD64_ADDR64 *) ->
             (* 64-bit VA *)
             assert(read_int32 sdata (pos + 4) = 0l);
@@ -246,6 +248,7 @@ let create_dll oc objs =
             Buf.patch_lazy_int32 buf pos (lazy (Int32.add (Int32.add initial (Lazy.force rva)) image_base))
 
         | `x86, 0x14 (* IMAGE_REL_I386_REL32 *)
+        | `arm64, 0x11 (* IMAGE_REL_ARM64_REL32 *)
         | `x64, 0x04 (* IMAGE_REL_AMD64_REL32 *) ->
             Buf.patch_lazy_int32 buf pos (lazy (Int32.sub (Int32.add initial (Lazy.force rva)) (Int32.add (Lazy.force rel_rva) 4l)))
         | _, k ->
@@ -346,11 +349,11 @@ let create_dll oc objs =
   (* coff header *)
   let machine = !Cmdline.machine in
   let disp_mach ~x86 ~x64 =
-    match machine with `x86 -> x86 | `x64 -> x64
+    match machine with `x86 -> x86 | `arm64 | `x64 -> x64
   in
   let emit_int32_64 x =
     emit_int32 oc x;
-    if machine = `x64 then emit_int32 oc 0l
+    if machine = `x64 || machine = `arm64 then emit_int32 oc 0l
   in
   emit_int16 oc (disp_mach ~x86:0x14c ~x64:0x8664);
   emit_int16 oc (List.length !sects); (* number of sections *)

@@ -16,10 +16,12 @@
 
 /* Guard against compiling with the wrong cl! */
 #ifdef MSVC
-#if defined(_M_AMD64) && !defined(MSVC64)
-#error 64-bit cl selected for a 32-bit build
-#elif !defined(_M_AMD64) && defined(MSVC64)
-#error 32-bit cl selected for a 64-bit build
+#if defined(_M_AMD64) && (!defined(MSVC64) || defined(MSVCARM64))
+#error Wrong flags specified for an x86_64 cl
+#elif defined(_M_ARM64) && (!defined(MSVCARM64) || defined(MSVC64))
+#error Wrong flags specified for an aarch64 cl
+#elif defined(_M_IX86) && (defined(MSVC64) || defined(MSVCARM64))
+#error Wrong flags specified for an x86 cl
 #endif
 #endif /* MSVC */
 

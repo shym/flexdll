@@ -1065,7 +1065,7 @@ let build_dll link_exe output_file files exts extra_args =
             | Some b -> b
             | None -> if !machine = `x64 then "0x10000" else "0x100000000"
           in
-          if !machine = `x64 || !machine = `arm64 then (Printf.sprintf "/base:%s " base_addr) ^ extra_args else extra_args
+          if !machine = `x64 (*|| !machine = `arm64*) then (Printf.sprintf "/base:%s " base_addr) ^ extra_args else extra_args
         in
         (* Flexdll requires that all images (main programs and all the DLLs) are
            not too far away. This is needed because of the 32-bit relative relocations

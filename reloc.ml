@@ -394,11 +394,14 @@ let add_reloc_table obj obj_name p =
         | `x64, 0x01 (* IMAGE_REL_AMD64_ADDR64 *) ->
             0x0002 (* absolute, native size (32/64) *)
 
-        | `arm64, 0x07 (* IMAGE_REL_ARM64_PAGEOFFSET_12L *)
-        | `arm64, 0x04 (* IMAGE_REL_ARM64_PAGEBASE_REL21 *)
-        | `arm64, 0x06 (* IMAGE_REL_ARM64_PAGEOFFSET_12A *)
+        | `arm64, 0x06 (* IMAGE_REL_ARM64_PAGEOFFSET_12A *) ->
+            0x0006 (* ARM64 ADD/ADDS patch *)
+        | `arm64, 0x07 (* IMAGE_REL_ARM64_PAGEOFFSET_12L *) ->
+            0x0007 (* ARM64 LDR patch *)
+        | `arm64, 0x04 (* IMAGE_REL_ARM64_PAGEBASE_REL21 *) ->
+            0x0008 (* ARM64 ADR patch *)
         | `arm64, 0x03 (* IMAGE_REL_ARM64_BRANCH26 *) ->
-            0x0100 (* XXX COMBAK Can't ignore! *)
+            0x000b (* ARM64 B/BL patch *)
 
         (* COMBAK Possible?
         | `arm64, 0x0f (* IMAGE_REL_ARM64_BRANCH19 *)

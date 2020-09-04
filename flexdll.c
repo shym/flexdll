@@ -98,6 +98,7 @@ static void *ll_dlopen(const wchar_t *libname, int for_execution) {
   /* Under Win 95/98/ME, LoadLibraryEx can fail in cases where LoadLibrary
      would succeed.  Just try again with LoadLibrary for good measure. */
   if (m == NULL) m = LoadLibraryW(libname);
+  /*fprintf(stderr, "Loaded %S at %p\n", libname, m); fflush(stderr);*/
   return (void *) m;
 }
 
@@ -237,6 +238,7 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
      */
     case RELOC_ABS:
       /*fprintf(stderr, "RELOC_ABS for %s; symbol at %#018llX and ptr->addr at 0x%p\n", ptr->name, s, (void*)ptr->addr); fflush(stderr);*/
+      if (*(ptr->addr)) {fprintf(stderr, "Non-zero RELOC_ABS for %s\n", ptr->name); fflush(stderr);}
       *(ptr->addr) += s;
       break;
     /* - IMAGE_REL_I386_REL32
@@ -258,6 +260,8 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
     case RELOC_REL32_4:
       s -= (INT_PTR)(ptr -> addr) + 8;
 patch_rel32:
+      /* This debug is expected */
+      if (*(ptr->addr)) {fprintf(stderr, "Non-zero RELOC_REL32_* for %s\n", ptr->name); fflush(stderr);}
       s += *((INT32*) ptr -> addr);
       if (s != (INT32) s) {
         /* Could improve error? */
@@ -272,7 +276,7 @@ patch_rel32:
        Patch: XXX
      */
     case RELOC_PAGEOFFSET_12A:
-      /*fprintf(stderr, "RELOC_PAGEOFFSET_12A for %s; symbol at %#018llX and ptr->addr at 0x%p\n", ptr->name, s, (void*)ptr->addr); fflush(stderr);*/
+      fprintf(stderr, "RELOC_PAGEOFFSET_12A for %s; symbol at %#018llX and ptr->addr at 0x%p\n", ptr->name, s, (void*)ptr->addr); fflush(stderr);
       /* Ensure bits 21:10 zeroed (they should be) */
       *(UINT32*)ptr->addr &= 0xffc003ff;
       /* Put the low 12 bits of s into the instruction */
@@ -283,7 +287,7 @@ patch_rel32:
        Patch: XXX
      */
     case RELOC_PAGEOFFSET_12L:
-      /*fprintf(stderr, "RELOC_PAGEOFFSET_12L for %s; symbol at %#018llX and ptr->addr at 0x%p\n", ptr->name, s, (void*)ptr->addr); fflush(stderr);*/
+      fprintf(stderr, "RELOC_PAGEOFFSET_12L for %s; symbol at %#018llX and ptr->addr at 0x%p\n", ptr->name, s, (void*)ptr->addr); fflush(stderr);
       if (s & 0x7) {
         sprintf(error_buffer, "flexdll error: cannot relocate RELOC_PAGEOFFSET_12L, target %s is not aligned: %p", ptr->name, (void *)s);
         error = 3;
@@ -299,7 +303,7 @@ patch_rel32:
        Patch: XXX
      */
     case RELOC_PAGEBASE_REL21:
-      /*fprintf(stderr, "RELOC_PAGEBASE_REL21 for %s; symbol at %#018llX and ptr->addr at 0x%p\n", ptr->name, s, (void*)ptr->addr); fflush(stderr);*/
+      fprintf(stderr, "RELOC_PAGEBASE_REL21 for %s; symbol at %#018llX and ptr->addr at 0x%p\n", ptr->name, s, (void*)ptr->addr); fflush(stderr);
       /* Convert s to 4KiB page address */
       s &= ~0xfff;
       /* Relative address to 4KiB page of PC */
@@ -320,7 +324,7 @@ patch_rel32:
        Patch: Bits 27:2 of the offset between s and ptr->addr written to bits 25:0 of ptr->addr
      */
     case RELOC_BRANCH26:
-      /*fprintf(stderr, "RELOC_BRANCH26 for %s; symbol at %#018llX and ptr->addr at 0x%p\n", ptr->name, s, (void*)ptr->addr); fflush(stderr);*/
+      fprintf(stderr, "RELOC_BRANCH26 for %s; symbol at %#018llX and ptr->addr at 0x%p\n", ptr->name, s, (void*)ptr->addr); fflush(stderr);
       s -= (INT_PTR)(ptr -> addr);
       if (s & 0x3) {
         sprintf(error_buffer, "flexdll error: cannot relocate RELOC_BRANCH26, target %s is not aligned: %p", ptr->name, (void *)s);

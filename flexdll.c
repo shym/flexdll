@@ -47,6 +47,8 @@ typedef struct dlunit {
 } dlunit;
 typedef void *resolver(void*, const char*);
 
+static volatile HANDLE what_was_I_thinking = INVALID_HANDLE_VALUE;
+
 static int error = 0;
 static char error_buffer[256];
 
@@ -395,8 +397,23 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
 #endif /* __STDC_SECURE_LIB__ >= 200411L*/
 #endif /* CYGWIN */
 
+again:
+  if (what_was_I_thinking == INVALID_HANDLE_VALUE) {
+    HANDLE hMutex = CreateMutex(NULL, TRUE, NULL);
+    if (InterlockedCompareExchangePointer(&what_was_I_thinking, hMutex, INVALID_HANDLE_VALUE) != INVALID_HANDLE_VALUE) {
+      CloseHandle(hMutex);
+      goto again;
+    }
+  } else {
+    if (WaitForSingleObject(what_was_I_thinking, INFINITE) == WAIT_FAILED) {
+      /* XXX Some kind of error here?? */
+      /* error = ?? */
+      return NULL;
+    }
+  }
+
   handle = ll_dlopen(file, exec);
-  if (!handle) { if (!error) error = 1; return NULL; }
+  if (!handle) { if (!error) error = 1; ReleaseMutex(what_was_I_thinking); return NULL; }
 
   unit = units;
   while ((NULL != unit) && (unit->handle != handle)) unit = unit->next;
@@ -415,8 +432,10 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
     /* Relocation has already been done if the flexdll's DLL entry point
        is used */
     flexdll_relocate(ll_dlsym(handle, "reloctbl"));
-    if (error) { flexdll_dlclose(unit); return NULL; }
+    if (error) { flexdll_dlclose(unit); ReleaseMutex(what_was_I_thinking); return NULL; }
   }
+
+  ReleaseMutex(what_was_I_thinking);
 
   return unit;
 }
@@ -456,9 +475,16 @@ void flexdll_dlclose(void *u) {
 
 
 void *flexdll_dlsym(void *u, const char *name) {
-  if (u == &main_unit) return find_symbol_global(NULL,name);
-  else if (NULL == u) return find_symbol(&static_symtable,name);
-  else return find_symbol(((dlunit*)u)->symtbl,name);
+  void *res;
+  if (WaitForSingleObject(what_was_I_thinking, INFINITE) == WAIT_FAILED) {
+    /* XXX Proper error code */
+    return NULL;
+  }
+  if (u == &main_unit) res = find_symbol_global(NULL,name);
+  else if (NULL == u) res = find_symbol(&static_symtable,name);
+  else res = find_symbol(((dlunit*)u)->symtbl,name);
+  ReleaseMutex(what_was_I_thinking);
+  return res;
 }
 
 char *flexdll_dlerror() {

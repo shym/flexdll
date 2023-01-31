@@ -47,7 +47,7 @@ typedef struct dlunit {
 } dlunit;
 typedef void *resolver(void*, const char*);
 
-static volatile HANDLE what_was_I_thinking = INVALID_HANDLE_VALUE;
+static SRWLOCK what_was_I_thinking = SRWLOCK_INIT;
 
 static int error = 0;
 static char error_buffer[256];
@@ -131,16 +131,16 @@ static void dump_reloctbl(reloctbl *tbl) {
 
   for (wr = tbl->nonwr; wr->last != 0; wr++)
     printf(" Non-writable relocation in zone %p -> %p\n",
-	   wr->first,
-	   wr->last);
+           wr->first,
+           wr->last);
 
   for (ptr = tbl->entries; ptr->kind; ptr++)
     printf(" %p (kind:%04lx) (now:%p)  %s\n",
-	   (void *)ptr->addr,
-	   (unsigned long)ptr->kind,
-	   (void *)((UINT_PTR)(*((uintnat*) ptr->addr))),
-	   ptr->name
-	   );
+           (void *)ptr->addr,
+           (unsigned long)ptr->kind,
+           (void *)((UINT_PTR)(*((uintnat*) ptr->addr))),
+           ptr->name
+           );
 }
 
 static void dump_master_reloctbl(reloctbl **ptr) {
@@ -304,7 +304,7 @@ static int compare_dynsymbol(const void *s1, const void *s2) {
 }
 
 static void *find_symbol(symtbl *tbl, const char *name) {
-  static dynsymbol s;
+  dynsymbol s;
   dynsymbol *sym;
 
   if (!tbl) return NULL;
@@ -322,39 +322,66 @@ static void *find_symbol(symtbl *tbl, const char *name) {
 
 extern symtbl static_symtable;
 static dlunit *units = NULL;
+static dlunit *units_tail = NULL;
 static dlunit main_unit;
 
 static void push_unit(dlunit *unit) {
-  unit->next = units;
-  unit->prev = NULL;
-  if (units) units->prev = unit;
-  units = unit;
+  if (units) {
+    unit->next = units;
+    unit->prev = units_tail;
+    units_tail->next = units->prev = unit;
+    units = unit;
+  } else {
+    unit->next = unit->prev = unit;
+    units = units_tail = unit;
+  }
 }
 
 static void unlink_unit(dlunit *unit) {
-  if (unit->prev) unit->prev->next=unit->next;
-  else units=unit->next;
-
-  if (unit->next) unit->next->prev=unit->prev;
+  exit(2);
+  if (units == units_tail) {
+    units = units_tail = NULL;
+  } else {
+    unit->prev->next = unit->next;
+    unit->next->prev = unit->prev;
+    if (unit == units_tail)
+      units_tail = unit->prev;
+    else if (unit == units)
+      units = unit->next;
+  }
 }
 
 static void *find_symbol_global(void *data, const char *name) {
   void *sym;
-  dlunit *unit;
+  dlunit *unit, *this_run;
+  static dlunit * volatile our_units = NULL;
 
   if (!name) return NULL;
   sym = find_symbol(&static_symtable, name);
   if (sym) return sym;
 
-  for (unit = units; unit; unit = unit->next) {
+  if (!our_units)
+    /*InterlockedExchangePointer((void *)&our_units, units);*/
+    our_units = units;
+
+  this_run = our_units;
+  if (!this_run)
+    return NULL;
+
+  unit = this_run;
+  do {
+  /*for (unit = our_units; unit; unit = unit->next) {*/
     if (unit->global) {
       sym = find_symbol(unit->symtbl, name);
       if (sym) {
-	if (unit != units) { unlink_unit(unit); push_unit(unit); }
-	return sym;
+        if (this_run != unit)
+          /*InterlockedExchangePointer((void *)&our_units, unit);*/
+          our_units = unit;
+        return sym;
       }
     }
-  }
+    unit = unit->next;
+  } while (unit != this_run);
   return NULL;
 }
 
@@ -397,27 +424,14 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
 #endif /* __STDC_SECURE_LIB__ >= 200411L*/
 #endif /* CYGWIN */
 
-again:
-  if (what_was_I_thinking == INVALID_HANDLE_VALUE) {
-    HANDLE hMutex = CreateMutex(NULL, TRUE, NULL);
-    if (InterlockedCompareExchangePointer(&what_was_I_thinking, hMutex, INVALID_HANDLE_VALUE) != INVALID_HANDLE_VALUE) {
-      CloseHandle(hMutex);
-      goto again;
-    }
-  } else {
-    if (WaitForSingleObject(what_was_I_thinking, INFINITE) == WAIT_FAILED) {
-      /* XXX Some kind of error here?? */
-      /* error = ?? */
-      return NULL;
-    }
-  }
+  AcquireSRWLockExclusive(&what_was_I_thinking);
 
   handle = ll_dlopen(file, exec);
-  if (!handle) { if (!error) error = 1; ReleaseMutex(what_was_I_thinking); return NULL; }
+  if (!handle) { if (!error) error = 1; ReleaseSRWLockExclusive(&what_was_I_thinking); return NULL; }
 
   unit = units;
-  while ((NULL != unit) && (unit->handle != handle)) unit = unit->next;
-  if (unit) { unit->count++; }
+  while (unit && (unit->next != units) && (unit->handle != handle)) unit = unit->next;
+  if (unit && unit->handle == handle) { unit->count++; }
   else {
     unit = malloc(sizeof(dlunit));
     unit->handle = handle;
@@ -432,10 +446,10 @@ again:
     /* Relocation has already been done if the flexdll's DLL entry point
        is used */
     flexdll_relocate(ll_dlsym(handle, "reloctbl"));
-    if (error) { flexdll_dlclose(unit); ReleaseMutex(what_was_I_thinking); return NULL; }
+    if (error) { flexdll_dlclose(unit); ReleaseSRWLockExclusive(&what_was_I_thinking); return NULL; }
   }
 
-  ReleaseMutex(what_was_I_thinking);
+  ReleaseSRWLockExclusive(&what_was_I_thinking);
 
   return unit;
 }
@@ -476,14 +490,11 @@ void flexdll_dlclose(void *u) {
 
 void *flexdll_dlsym(void *u, const char *name) {
   void *res;
-  if (WaitForSingleObject(what_was_I_thinking, INFINITE) == WAIT_FAILED) {
-    /* XXX Proper error code */
-    return NULL;
-  }
+  AcquireSRWLockShared(&what_was_I_thinking);
   if (u == &main_unit) res = find_symbol_global(NULL,name);
   else if (NULL == u) res = find_symbol(&static_symtable,name);
   else res = find_symbol(((dlunit*)u)->symtbl,name);
-  ReleaseMutex(what_was_I_thinking);
+  ReleaseSRWLockShared(&what_was_I_thinking);
   return res;
 }
 

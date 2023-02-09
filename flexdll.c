@@ -49,8 +49,10 @@ typedef void *resolver(void*, const char*);
 
 static volatile HANDLE what_was_I_thinking = INVALID_HANDLE_VALUE;
 
-static int error = 0;
-static char error_buffer[256];
+typedef struct err_s {
+  int error;
+  char error_buffer[256];
+} err_t;
 
 /* Emulate a low-level dlopen-like interface */
 
@@ -106,16 +108,19 @@ static void *ll_dlsym(void *handle, char *name) {
 
 static char *ll_dlerror(void)
 {
+  err_t *e;
+  e = malloc(sizeof(err_t));
+  if(!e) return "allocation error";
   DWORD msglen =
     FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                   NULL,           /* message source */
                   GetLastError(), /* error number */
                   0,              /* default language */
-                  error_buffer,         /* destination */
-                  sizeof(error_buffer), /* size of destination */
+                  e->error_buffer,         /* destination */
+                  sizeof(e->error_buffer), /* size of destination */
                   NULL);          /* no inserts */
   if (msglen == 0) return "unknown error";
-  else return error_buffer;
+  else return &(e->error_buffer[0]);
 }
 
 #endif
@@ -149,16 +154,16 @@ static void dump_master_reloctbl(reloctbl **ptr) {
 }
 
 /* Avoid the use of snprintf */
-static void cannot_resolve_msg(char *name) {
+static void cannot_resolve_msg(char *name, err_t *e) {
   static char msg[] = "Cannot resolve ";
   static int l = sizeof(msg) - 1;
   int n = strlen(name);
-  memcpy(error_buffer,msg,l);
-  memcpy(error_buffer+l,name,min(n,sizeof(error_buffer) - l - 1));
-  error_buffer[l+n] = 0;
+  memcpy(e->error_buffer,msg,l);
+  memcpy(e->error_buffer+l,name,min(n,sizeof(e->error_buffer) - l - 1));
+  e->error_buffer[l+n] = 0;
 }
 
-static void relocate(resolver f, void *data, reloctbl *tbl) {
+static void relocate(resolver f, void *data, reloctbl *tbl, err_t *e) {
   reloc_entry *ptr;
   nonwr *wr;
   INT_PTR s;
@@ -180,8 +185,8 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
 
     s = (UINT_PTR) f(data,ptr->name);
     if (!s) {
-      error = 2;
-      cannot_resolve_msg(ptr->name);
+      e->error = 2;
+      cannot_resolve_msg(ptr->name,e);
       goto restore;
     }
 
@@ -226,8 +231,8 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
       s -= (INT_PTR)(ptr -> addr) + 4;
       s += *((INT32*) ptr -> addr);
       if (s != (INT32) s) {
-        sprintf(error_buffer, "flexdll error: cannot relocate %s RELOC_REL32, target is too far: %p  %p", ptr->name, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
-        error = 3;
+        sprintf(e->error_buffer, "flexdll error: cannot relocate %s RELOC_REL32, target is too far: %p  %p", ptr->name, (void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
+        e->error = 3;
         goto restore;
       }
       *((UINT32*) ptr->addr) = s;
@@ -236,8 +241,8 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
       s -= (INT_PTR)(ptr -> addr) + 8;
       s += *((INT32*) ptr -> addr);
       if (s != (INT32) s) {
-        sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32_4, target is too far: %p  %p",(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
-        error = 3;
+        sprintf(e->error_buffer, "flexdll error: cannot relocate RELOC_REL32_4, target is too far: %p  %p",(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
+        e->error = 3;
         goto restore;
       }
       *((UINT32*) ptr->addr) = s;
@@ -246,8 +251,8 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
       s -= (INT_PTR)(ptr -> addr) + 5;
       s += *((INT32*) ptr -> addr);
       if (s != (INT32) s) {
-        sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32_1, target is too far: %p  %p",(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
-        error = 3;
+        sprintf(e->error_buffer, "flexdll error: cannot relocate RELOC_REL32_1, target is too far: %p  %p",(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
+        e->error = 3;
         goto restore;
       }
       *((UINT32*) ptr->addr) = s;
@@ -256,8 +261,8 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
       s -= (INT_PTR)(ptr -> addr) + 6;
       s += *((INT32*) ptr -> addr);
       if (s != (INT32) s) {
-        sprintf(error_buffer, "flexdll error: cannot relocate RELOC_REL32_2, target is too far: %p  %p",(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
-        error = 3;
+        sprintf(e->error_buffer, "flexdll error: cannot relocate RELOC_REL32_2, target is too far: %p  %p",(void *)((UINT_PTR) s), (void *) ((UINT_PTR)(INT32) s));
+        e->error = 3;
         goto restore;
       }
       *((UINT32*) ptr->addr) = s;
@@ -278,8 +283,8 @@ static void relocate(resolver f, void *data, reloctbl *tbl) {
   }
 }
 
-static void relocate_master(resolver f, void *data, reloctbl **ptr) {
-  while (0 == error && *ptr) relocate(f,data,*ptr++);
+static void relocate_master(resolver f, void *data, reloctbl **ptr, err_t *e) {
+  while (0 == e->error && *ptr) relocate(f,data,*ptr++,e);
 }
 
 /* Symbol tables */
@@ -359,9 +364,11 @@ static void *find_symbol_global(void *data, const char *name) {
 }
 
 int flexdll_relocate(void *tbl) {
+  err_t e;
+  e.error = 0;
   if (!tbl) { printf("No master relocation table\n"); return 0; }
-  relocate_master(find_symbol_global, NULL, tbl);
-  if (error) return 0;
+  relocate_master(find_symbol_global, NULL, tbl, &e);
+  if (e.error) return 0;
   return 1;
 }
 
@@ -376,7 +383,6 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
   int exec = (mode & FLEXDLL_RTLD_NOEXEC ? 0 : 1);
   void* relocate = (exec ? &flexdll_relocate : 0);
 
-  error = 0;
   if (!file) return &main_unit;
 
 #ifdef CYGWIN
@@ -413,7 +419,7 @@ again:
   }
 
   handle = ll_dlopen(file, exec);
-  if (!handle) { if (!error) error = 1; ReleaseMutex(what_was_I_thinking); return NULL; }
+  if (!handle) { ReleaseMutex(what_was_I_thinking); return NULL; }
 
   unit = units;
   while ((NULL != unit) && (unit->handle != handle)) unit = unit->next;
@@ -431,8 +437,8 @@ again:
   if (exec) {
     /* Relocation has already been done if the flexdll's DLL entry point
        is used */
-    flexdll_relocate(ll_dlsym(handle, "reloctbl"));
-    if (error) { flexdll_dlclose(unit); ReleaseMutex(what_was_I_thinking); return NULL; }
+    int res = flexdll_relocate(ll_dlsym(handle, "reloctbl"));
+    if (!res) { flexdll_dlclose(unit); ReleaseMutex(what_was_I_thinking); return NULL; }
   }
 
   ReleaseMutex(what_was_I_thinking);
@@ -450,7 +456,7 @@ void *flexdll_dlopen(const char *file, int mode)
 
   if (file) {
     nbr = MultiByteToWideChar(CP_THREAD_ACP, 0, file, -1, NULL, 0);
-    if (nbr == 0) { if (!error) error = 1; return NULL; }
+    if (nbr == 0) { return NULL; }
     p = malloc(nbr*sizeof(*p));
     MultiByteToWideChar(CP_THREAD_ACP, 0, file, -1, p, nbr);
   }
@@ -488,13 +494,7 @@ void *flexdll_dlsym(void *u, const char *name) {
 }
 
 char *flexdll_dlerror() {
-  switch (error) {
-  case 0: return NULL;
-  case 1: error = 0; return ll_dlerror();
-  case 2: error = 0; return error_buffer;
-  case 3: error = 0; return error_buffer;
-  }
-  return NULL;
+  return ll_dlerror();
 }
 
 void flexdll_dump_exports(void *u) {

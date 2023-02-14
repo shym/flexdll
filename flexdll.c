@@ -47,6 +47,25 @@ typedef struct dlunit {
 } dlunit;
 typedef void *resolver(void*, const char*);
 
+#define AcquireInitMutex(hMutex,retOnFail)                                                                      \
+  do {                                                                                                          \
+    if (hMutex == INVALID_HANDLE_VALUE) {                                                                       \
+      HANDLE newMutex = CreateMutex(NULL, TRUE, NULL);                                                          \
+      if (InterlockedCompareExchangePointer(&hMutex, newMutex, INVALID_HANDLE_VALUE) != INVALID_HANDLE_VALUE) { \
+        CloseHandle(newMutex); /* and loop */                                                                   \
+      } else {                                                                                                  \
+        break;                                                                                                  \
+      }                                                                                                         \
+    } else {                                                                                                    \
+      if (WaitForSingleObject(hMutex, INFINITE) == WAIT_FAILED) {                                               \
+        /* XXX Some kind of error here?? */                                                                     \
+        /* error = ?? */                                                                                        \
+        return retOnFail;                                                                                       \
+      }                                                                                                         \
+      break;                                                                                                    \
+    }                                                                                                           \
+  } while(1)
+
 static volatile HANDLE what_was_I_thinking = INVALID_HANDLE_VALUE;
 
 typedef struct err_s {
@@ -403,21 +422,7 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
 #endif /* __STDC_SECURE_LIB__ >= 200411L*/
 #endif /* CYGWIN */
 
-again:
-  if (what_was_I_thinking == INVALID_HANDLE_VALUE) {
-    HANDLE hMutex = CreateMutex(NULL, TRUE, NULL);
-    if (InterlockedCompareExchangePointer(&what_was_I_thinking, hMutex, INVALID_HANDLE_VALUE) != INVALID_HANDLE_VALUE) {
-      CloseHandle(hMutex);
-      goto again;
-    }
-  } else {
-    if (WaitForSingleObject(what_was_I_thinking, INFINITE) == WAIT_FAILED) {
-      /* XXX Some kind of error here?? */
-      /* error = ?? */
-      return NULL;
-    }
-  }
-
+  AcquireInitMutex(what_was_I_thinking, NULL);
   handle = ll_dlopen(file, exec);
   if (!handle) { ReleaseMutex(what_was_I_thinking); return NULL; }
 
@@ -482,10 +487,8 @@ void flexdll_dlclose(void *u) {
 
 void *flexdll_dlsym(void *u, const char *name) {
   void *res;
-  if (WaitForSingleObject(what_was_I_thinking, INFINITE) == WAIT_FAILED) {
+  AcquireInitMutex(what_was_I_thinking, NULL);
     /* XXX Proper error code */
-    return NULL;
-  }
   if (u == &main_unit) res = find_symbol_global(NULL,name);
   else if (NULL == u) res = find_symbol(&static_symtable,name);
   else res = find_symbol(((dlunit*)u)->symtbl,name);

@@ -56,10 +56,18 @@ typedef struct error_s {
   char message[256];
 } error_t;
 
-static error_t *get_tls_error() {
+#define GET_TLS_ERROR_RESET_LAST 1
+#define GET_TLS_ERROR_KEEP_LAST 2
+#define GET_TLS_ERROR_SAVE_LAST 3
+#define GET_TLS_ERROR_IGNORE_LAST 4
+
+static error_t *get_tls_error(int op) {
   static volatile DWORD error_idx = TLS_OUT_OF_INDEXES;
-  DWORD new_idx;
+  DWORD new_idx, last_error;
   error_t *error;
+
+  if(op == GET_TLS_ERROR_SAVE_LAST || op == GET_TLS_ERROR_KEEP_LAST)
+    last_error = GetLastError();
 
 retry:
   if(error_idx == TLS_OUT_OF_INDEXES) {
@@ -86,6 +94,23 @@ retry:
       free(error);
       return NULL;
     }
+  }
+
+  switch(op) {
+  case GET_TLS_ERROR_RESET_LAST:
+    error->last_error = 0;
+    break;
+  case GET_TLS_ERROR_KEEP_LAST:
+    if(error->last_error == 0)
+      error->last_error = last_error;
+    break;
+  case GET_TLS_ERROR_SAVE_LAST:
+    error->last_error = last_error;
+    break;
+  case GET_TLS_ERROR_IGNORE_LAST:
+    break;
+  default:
+    assert(0);
   }
 
   return error;
@@ -147,22 +172,17 @@ static char *ll_dlerror(void)
 {
   DWORD last_error;
   error_t * err;
-
-  last_error = GetLastError();
-
-  err = get_tls_error();
+  err = get_tls_error(GET_TLS_ERROR_KEEP_LAST);
   if(err == NULL) return NULL;
-
-  if(err->last_error) last_error = err->last_error;
 
   DWORD msglen =
     FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                  NULL,           /* message source */
-                  last_error,     /* error number */
-                  0,              /* default language */
+                  NULL,                 /* message source */
+                  err->last_error,      /* error number */
+                  0,                    /* default language */
                   err->message,         /* destination */
                   sizeof(err->message), /* size of destination */
-                  NULL);          /* no inserts */
+                  NULL);                /* no inserts */
   if (msglen == 0) return "unknown error";
   else return err->message;
 }
@@ -409,7 +429,7 @@ static void *find_symbol_global(void *data, const char *name) {
 
 int flexdll_relocate(void *tbl) {
   error_t * err;
-  err = get_tls_error();
+  err = get_tls_error(GET_TLS_ERROR_IGNORE_LAST);
   if(err == NULL) return 0;
 
   if (!tbl) { printf("No master relocation table\n"); return 0; }
@@ -428,12 +448,11 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
   char flexdll_relocate_env[256];
   int exec = (mode & FLEXDLL_RTLD_NOEXEC ? 0 : 1);
   void* relocate = (exec ? &flexdll_relocate : 0);
-  error_t * err;
-  err = get_tls_error();
-  if(err == NULL) return NULL;
 
+  error_t * err;
+  err = get_tls_error(GET_TLS_ERROR_RESET_LAST);
+  if(err == NULL) return NULL;
   err->code = 0;
-  err->last_error = 0;
   if (!file) return &main_unit;
 
 #ifdef CYGWIN
@@ -456,7 +475,7 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
 
   handle = ll_dlopen(file, exec);
   if (!handle) {
-    if (!err->code) { err->code = 1; err->last_error = GetLastError(); }
+    if (!err->code) { err->code = 1; }
     return NULL;
   }
 
@@ -492,13 +511,13 @@ void *flexdll_dlopen(const char *file, int mode)
   void * handle;
 
   error_t * err;
-  err = get_tls_error();
+  err = get_tls_error(GET_TLS_ERROR_RESET_LAST);
   if(err == NULL) return NULL;
 
   if (file) {
     nbr = MultiByteToWideChar(CP_THREAD_ACP, 0, file, -1, NULL, 0);
     if (nbr == 0) {
-      if (!err->code) { err->code = 1; err->last_error = GetLastError(); }
+      if (!err->code) { err->code = 1; }
       return NULL;
     }
     p = malloc(nbr*sizeof(*p));
@@ -532,14 +551,14 @@ void *flexdll_dlsym(void *u, const char *name) {
 
 char *flexdll_dlerror() {
   error_t * err;
-  err = get_tls_error();
+  err = get_tls_error(GET_TLS_ERROR_SAVE_LAST);
   if(err == NULL) return NULL;
 
   switch (err->code) {
   case 0: return NULL;
   case 1: err->code = 0; return ll_dlerror();
-  case 2: err->code = 0; err->last_error = 0; return err->message;
-  case 3: err->code = 0; err->last_error = 0; return err->message;
+  case 2: err->code = 0; return err->message;
+  case 3: err->code = 0; return err->message;
   }
   return NULL;
 }

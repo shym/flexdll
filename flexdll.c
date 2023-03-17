@@ -49,6 +49,7 @@ typedef struct dlunit {
 typedef void *resolver(void*, const char*);
 
 /* Error reporting */
+/* TODO: Explain the rationale */
 
 typedef struct error_s {
   int code;

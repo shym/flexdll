@@ -55,17 +55,17 @@ typedef struct error_s {
   int code;
   int last_error;
   char message[256];
-} error_t;
+} err_t;
 
 #define GET_TLS_ERROR_RESET_LAST 1
 #define GET_TLS_ERROR_KEEP_LAST 2
 #define GET_TLS_ERROR_SAVE_LAST 3
 #define GET_TLS_ERROR_IGNORE_LAST 4
 
-static error_t *get_tls_error(int op) {
+static err_t *get_tls_error(int op) {
   static volatile DWORD error_idx = TLS_OUT_OF_INDEXES;
   DWORD new_idx, last_error;
-  error_t *error;
+  err_t *error;
 
   if(op == GET_TLS_ERROR_SAVE_LAST || op == GET_TLS_ERROR_KEEP_LAST)
     last_error = GetLastError();
@@ -88,7 +88,7 @@ retry:
 
   error = TlsGetValue(error_idx);
   if(error == NULL) {
-    error = malloc(sizeof(error_t));
+    error = malloc(sizeof(err_t));
     if(error == NULL)
       return NULL;
     if(!TlsSetValue(error_idx, error)) {
@@ -172,7 +172,7 @@ static void *ll_dlsym(void *handle, char *name) {
 static char *ll_dlerror(void)
 {
   DWORD last_error;
-  error_t * err;
+  err_t * err;
   err = get_tls_error(GET_TLS_ERROR_KEEP_LAST);
   if(err == NULL) return NULL;
 
@@ -219,7 +219,7 @@ static void dump_master_reloctbl(reloctbl **ptr) {
 }
 
 /* Avoid the use of snprintf */
-static void cannot_resolve_msg(char *name, error_t *err) {
+static void cannot_resolve_msg(char *name, err_t *err) {
   static char msg[] = "Cannot resolve ";
   static int l = sizeof(msg) - 1;
   int n = strlen(name);
@@ -228,7 +228,7 @@ static void cannot_resolve_msg(char *name, error_t *err) {
   err->message[l+n] = 0;
 }
 
-static void relocate(resolver f, void *data, reloctbl *tbl, error_t *err) {
+static void relocate(resolver f, void *data, reloctbl *tbl, err_t *err) {
   reloc_entry *ptr;
   nonwr *wr;
   INT_PTR s;
@@ -348,7 +348,7 @@ static void relocate(resolver f, void *data, reloctbl *tbl, error_t *err) {
   }
 }
 
-static void relocate_master(resolver f, void *data, reloctbl **ptr, error_t *err) {
+static void relocate_master(resolver f, void *data, reloctbl **ptr, err_t *err) {
   while (0 == err->code && *ptr) relocate(f,data,*ptr++,err);
 }
 
@@ -429,7 +429,7 @@ static void *find_symbol_global(void *data, const char *name) {
 }
 
 int flexdll_relocate(void *tbl) {
-  error_t * err;
+  err_t * err;
   err = get_tls_error(GET_TLS_ERROR_IGNORE_LAST);
   if(err == NULL) return 0;
 
@@ -450,7 +450,7 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
   int exec = (mode & FLEXDLL_RTLD_NOEXEC ? 0 : 1);
   void* relocate = (exec ? &flexdll_relocate : 0);
 
-  error_t * err;
+  err_t * err;
   err = get_tls_error(GET_TLS_ERROR_RESET_LAST);
   if(err == NULL) return NULL;
   err->code = 0;
@@ -511,7 +511,7 @@ void *flexdll_dlopen(const char *file, int mode)
   int nbr;
   void * handle;
 
-  error_t * err;
+  err_t * err;
   err = get_tls_error(GET_TLS_ERROR_RESET_LAST);
   if(err == NULL) return NULL;
 
@@ -551,7 +551,7 @@ void *flexdll_dlsym(void *u, const char *name) {
 }
 
 char *flexdll_dlerror() {
-  error_t * err;
+  err_t * err;
   err = get_tls_error(GET_TLS_ERROR_SAVE_LAST);
   if(err == NULL) return NULL;
 

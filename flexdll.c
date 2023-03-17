@@ -514,6 +514,7 @@ void *flexdll_dlopen(const char *file, int mode)
   err_t * err;
   err = get_tls_error(TLS_ERROR_RESET_LAST);
   if(err == NULL) return NULL;
+  err->code = 0;
 
   if (file) {
     nbr = MultiByteToWideChar(CP_THREAD_ACP, 0, file, -1, NULL, 0);

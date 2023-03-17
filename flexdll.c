@@ -171,12 +171,12 @@ static void *ll_dlsym(void *handle, char *name) {
 
 static char *ll_dlerror(void)
 {
-  DWORD last_error;
+  DWORD last_error, msglen;
   err_t * err;
   err = get_tls_error(TLS_ERROR_KEEP_LAST);
   if(err == NULL) return NULL;
 
-  DWORD msglen =
+  msglen =
     FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                   NULL,                 /* message source */
                   err->last_error,      /* error number */

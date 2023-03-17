@@ -57,17 +57,17 @@ typedef struct error_s {
   char message[256];
 } err_t;
 
-#define GET_TLS_ERROR_RESET_LAST 1
-#define GET_TLS_ERROR_KEEP_LAST 2
-#define GET_TLS_ERROR_SAVE_LAST 3
-#define GET_TLS_ERROR_IGNORE_LAST 4
+#define TLS_ERROR_RESET_LAST 1
+#define TLS_ERROR_KEEP_LAST 2
+#define TLS_ERROR_SAVE_LAST 3
+#define TLS_ERROR_IGNORE_LAST 4
 
 static err_t *get_tls_error(int op) {
   static volatile DWORD error_idx = TLS_OUT_OF_INDEXES;
   DWORD new_idx, last_error;
   err_t *error;
 
-  if(op == GET_TLS_ERROR_SAVE_LAST || op == GET_TLS_ERROR_KEEP_LAST)
+  if(op == TLS_ERROR_SAVE_LAST || op == TLS_ERROR_KEEP_LAST)
     last_error = GetLastError();
 
 retry:
@@ -98,17 +98,17 @@ retry:
   }
 
   switch(op) {
-  case GET_TLS_ERROR_RESET_LAST:
+  case TLS_ERROR_RESET_LAST:
     error->last_error = 0;
     break;
-  case GET_TLS_ERROR_KEEP_LAST:
+  case TLS_ERROR_KEEP_LAST:
     if(error->last_error == 0)
       error->last_error = last_error;
     break;
-  case GET_TLS_ERROR_SAVE_LAST:
+  case TLS_ERROR_SAVE_LAST:
     error->last_error = last_error;
     break;
-  case GET_TLS_ERROR_IGNORE_LAST:
+  case TLS_ERROR_IGNORE_LAST:
     break;
   default:
     assert(0);
@@ -173,7 +173,7 @@ static char *ll_dlerror(void)
 {
   DWORD last_error;
   err_t * err;
-  err = get_tls_error(GET_TLS_ERROR_KEEP_LAST);
+  err = get_tls_error(TLS_ERROR_KEEP_LAST);
   if(err == NULL) return NULL;
 
   DWORD msglen =
@@ -430,7 +430,7 @@ static void *find_symbol_global(void *data, const char *name) {
 
 int flexdll_relocate(void *tbl) {
   err_t * err;
-  err = get_tls_error(GET_TLS_ERROR_IGNORE_LAST);
+  err = get_tls_error(TLS_ERROR_IGNORE_LAST);
   if(err == NULL) return 0;
 
   if (!tbl) { printf("No master relocation table\n"); return 0; }
@@ -451,7 +451,7 @@ void *flexdll_wdlopen(const wchar_t *file, int mode) {
   void* relocate = (exec ? &flexdll_relocate : 0);
 
   err_t * err;
-  err = get_tls_error(GET_TLS_ERROR_RESET_LAST);
+  err = get_tls_error(TLS_ERROR_RESET_LAST);
   if(err == NULL) return NULL;
   err->code = 0;
   if (!file) return &main_unit;
@@ -512,7 +512,7 @@ void *flexdll_dlopen(const char *file, int mode)
   void * handle;
 
   err_t * err;
-  err = get_tls_error(GET_TLS_ERROR_RESET_LAST);
+  err = get_tls_error(TLS_ERROR_RESET_LAST);
   if(err == NULL) return NULL;
 
   if (file) {
@@ -552,7 +552,7 @@ void *flexdll_dlsym(void *u, const char *name) {
 
 char *flexdll_dlerror() {
   err_t * err;
-  err = get_tls_error(GET_TLS_ERROR_SAVE_LAST);
+  err = get_tls_error(TLS_ERROR_SAVE_LAST);
   if(err == NULL) return NULL;
 
   switch (err->code) {

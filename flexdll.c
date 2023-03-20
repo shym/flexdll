@@ -60,7 +60,6 @@ typedef struct error_s {
 #define TLS_ERROR_RESET_LAST 1
 #define TLS_ERROR_KEEP_LAST 2
 #define TLS_ERROR_SAVE_LAST 3
-#define TLS_ERROR_IGNORE_LAST 4
 
 static err_t *get_tls_error(int op) {
   static volatile DWORD error_idx = TLS_OUT_OF_INDEXES;
@@ -107,8 +106,6 @@ retry:
     break;
   case TLS_ERROR_SAVE_LAST:
     error->last_error = last_error;
-    break;
-  case TLS_ERROR_IGNORE_LAST:
     break;
   default:
     assert(0);

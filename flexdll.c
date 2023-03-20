@@ -49,7 +49,36 @@ typedef struct dlunit {
 typedef void *resolver(void*, const char*);
 
 /* Error reporting */
-/* TODO: Explain the rationale */
+/* The latest error must be kept in some variable so that flexdll_dlerror can
+ * report it but this causes data races (and possible segmentation faults) in
+ * multithreaded programs if that variable is global. So this must use
+ * thread-local storage instead.
+ *
+ * To ensure compatibility, the implementation does not require compiler support
+ * for thread-local storage (__thread) and instead relies on functions
+ * TlsGetValue, TlsSetValue, etc.
+ * This makes for an implementation a bit complicated, as the goal is to deal
+ * with errors and those functions do modify the result of further calls to
+ * GetLastError even when they succeed.
+ *
+ * This implementation is structured around the function get_tls_error that
+ * returns a structure containing, for the current thread, the code (and a
+ * buffer for the corresponding message) of the last flexdll error and the last
+ * system error, as returned by GetLastError, when relevant. It accepts an
+ * argument to decide what should be the behaviour regarding the current latest
+ * system error, depending on the entrypoint:
+ *
+ * - TLS_ERROR_RESET_LAST will reset what is stored in the structure, so this is
+ *   intended for initialisation entry points (flexdll_dlopen, flexdll_relocate)
+ * - TLS_ERROR_SAVE_LAST will record in last_error the current latest system
+ *   error before it is overriden by TlsGetValue (flexdll_dlerror)
+ * - TLS_ERROR_KEEP_LAST will record in last_error the current latest system
+ *   error unless last_error already contains an error (ll_dlerror, since this
+ *   can be called both from flexdll_dlerror (last_error already set) or exactly
+ *   when the error is encountered, in relocate)
+ *
+ * The other exported entrypoints do not need to access the error storage.
+ */
 
 typedef struct error_s {
   int code;

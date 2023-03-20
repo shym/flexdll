@@ -430,7 +430,7 @@ static void *find_symbol_global(void *data, const char *name) {
 
 int flexdll_relocate(void *tbl) {
   err_t * err;
-  err = get_tls_error(TLS_ERROR_IGNORE_LAST);
+  err = get_tls_error(TLS_ERROR_RESET_LAST);
   if(err == NULL) return 0;
 
   if (!tbl) { printf("No master relocation table\n"); return 0; }

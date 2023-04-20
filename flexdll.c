@@ -81,59 +81,64 @@ typedef void *resolver(void*, const char*);
 
 typedef struct error_s {
   int code;
-  int last_error;
   char message[256];
 } err_t;
 
+#define TLS_ERROR_NOP 0
 #define TLS_ERROR_RESET 1
-#define TLS_ERROR_KEEP_LAST 2
-#define TLS_ERROR_SAVE_LAST 3
 
 static err_t *get_tls_error(int op) {
   static volatile DWORD error_idx = TLS_OUT_OF_INDEXES;
   DWORD new_idx, last_error;
   err_t *error;
 
-  if(op == TLS_ERROR_SAVE_LAST || op == TLS_ERROR_KEEP_LAST)
-    last_error = GetLastError();
+  /* We store the last system error to restore it on leaving, so that
+   * get_tls_error is transparent with regards to GetLastError */
+  last_error = GetLastError();
 
   if(error_idx == TLS_OUT_OF_INDEXES) {
     new_idx = TlsAlloc();
-    if(new_idx == TLS_OUT_OF_INDEXES)
-      /* If we cannot allocate the way to report errors... */
+    if(new_idx == TLS_OUT_OF_INDEXES) {
+      /* If we cannot allocate the structure required to report errors... */
+      /* Maybe we should set the last error to some standard value
+       * that correspond to such cases instead of resetting it? */
+      SetLastError(last_error);
       return NULL;
+    }
     /* According to documentation DWORD and LONG take both 32 bits so
      * this uses InterlockedCompareExchange to store a DWORD */
     if (InterlockedCompareExchange((LONG*)&error_idx, (LONG)new_idx, (LONG)TLS_OUT_OF_INDEXES) != (LONG)TLS_OUT_OF_INDEXES) {
-      if(!TlsFree(new_idx))
+      if(!TlsFree(new_idx)) {
+        SetLastError(last_error);
         return NULL;
+      }
     }
   }
 
   error = TlsGetValue(error_idx);
   if(error == NULL) {
     error = malloc(sizeof(err_t));
-    if(error == NULL)
+    if(error == NULL) {
+      SetLastError(last_error);
       return NULL;
+    }
     if(!TlsSetValue(error_idx, error)) {
       free(error);
+      SetLastError(last_error);
       return NULL;
     }
     error->code = 0;
-    error->last_error = 0;
+    error->message[0] = 0;
   }
 
+  SetLastError(last_error);
+
   switch(op) {
+  case TLS_ERROR_NOP:
+    break;
   case TLS_ERROR_RESET:
     error->code = 0;
-    error->last_error = 0;
-    break;
-  case TLS_ERROR_KEEP_LAST:
-    if(error->last_error == 0)
-      error->last_error = last_error;
-    break;
-  case TLS_ERROR_SAVE_LAST:
-    error->last_error = last_error;
+    error->message[0] = 0;
     break;
   default:
     return NULL;
@@ -198,13 +203,13 @@ static char *ll_dlerror(void)
 {
   DWORD msglen;
   err_t * err;
-  err = get_tls_error(TLS_ERROR_KEEP_LAST);
-  if(err == NULL) return NULL;
+  err = get_tls_error(TLS_ERROR_NOP);
+  if(err == NULL) return "error in accessing thread-local storage";
 
   msglen =
     FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                   NULL,                 /* message source */
-                  err->last_error,      /* error number */
+                  GetLastError(),       /* error number */
                   0,                    /* default language */
                   err->message,         /* destination */
                   sizeof(err->message), /* size of destination */
@@ -570,8 +575,8 @@ void *flexdll_dlsym(void *u, const char *name) {
 
 char *flexdll_dlerror() {
   err_t * err;
-  err = get_tls_error(TLS_ERROR_SAVE_LAST);
-  if(err == NULL) return NULL;
+  err = get_tls_error(TLS_ERROR_NOP);
+  if(err == NULL) return "error in accessing thread-local storage";
 
   switch (err->code) {
   case 0: return NULL;
